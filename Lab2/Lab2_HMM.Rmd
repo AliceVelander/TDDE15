@@ -1,0 +1,189 @@
+---
+title: "Lab2 - Hidden Markov Models"
+author: "Alice Velander"
+date: "9/21/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE, , message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Task 1
+Create the HMM for the scenario given 
+```{r}
+#install.packages("HMM")
+library(HMM)
+
+#Creating transition matrix with probabilities for each step. 
+#50% chance that you stay in the currect step, 50% chance that you move to the next
+trans=matrix(0, nrow = 10, ncol = 10)
+for (i in 1:10){
+  if(i != 10){
+    trans[i,i] = 0.5 
+    trans[i,i+1] = 0.5
+  }else{
+    trans[10,10] = 0.5 
+    trans[10,1] = 0.5
+  }
+}
+
+#Emission probabilities of the states
+#20% chance that one of the 5 spots closest are the correct observed state
+emission = matrix(0, nrow = 10, ncol = 10)
+for (i in 1:10){
+    for (j in -2:2){
+      value = (i+j)%%10
+      if (value==0){
+        value=10
+      } 
+      emission[i, value] = 0.2
+    }
+  }
+
+#Create our Hidden Markov Model
+HMM = initHMM(States = rep(1:10), Symbols = rep(1:10), transProbs = trans, emissionProbs = emission)
+
+HMM
+```
+
+
+## Task 2 
+Simulate 100 steps
+
+```{r}
+set.seed(12345)
+simulate=simHMM(HMM, 100)
+simulate
+```
+
+## Task 3
+Discard the hidden states from the sample obtained above. Use the remaining observations to compute the filtered and smoothed probability distributions for each of the 100 time points. Compute also the most probable path.
+```{r}
+most_probab_path = viterbi(HMM, simulate$observation)
+plot(most_probab_path, type = "o", col="black", xlab = "Iteration nr", ylab = "Current node")
+lines(simulate$states, type = "o", col="yellow")
+legend("topright", c("Viterbi", "True states"),
+       col=c("black","yellow"), lty=1, cex=1)
+
+```
+
+```{r}
+#compute filtering and smoothing
+alpha = exp(forward(HMM, simulate$observation))
+beta = exp(backward(HMM, simulate$observation))
+#normalize each step
+filter = t(apply(alpha, 1, "/", apply(alpha, 2, sum))) 
+smooth = t(apply(alpha*beta, 1, "/", apply(alpha*beta, 2, sum)))
+
+#filtering - use data until current state
+predict_filter = apply(X = filter, MARGIN = 2, FUN = which.max)
+plot(predict_filter, type = "o", col="blue", main = "filter & smooth", xlab = "Iteration", ylab="Predicted current state")
+
+#smoothing - use all data
+predict_smooth = apply(X = smooth, MARGIN = 2, FUN = which.max)
+lines(predict_smooth, type = "o", col="red")
+
+#compare with true states in graph
+lines(simulate$states, type = "o", col="yellow")
+legend("topright", c("Filter", "Smooth", "True states"),
+       col=c("blue", "red", "yellow"), lty=1, cex=1)
+```
+
+## Task 4
+Compute the accuracy of the filtered and smoothed probability distributions, and of the most probable path. That is, compute the percentage of the true hidden states that are guessed by each method.
+
+```{r}
+# VITERBI compare with simulation (which are is the true states)
+correct_vit = simulate$states == most_probab_path
+vit_acc = sum(correct_vit)/length(correct_vit) 
+
+# FILTER compare with simulation (which are is the true states)
+correct_fi = simulate$states == predict_filter
+fil_acc = sum(correct_fi)/length(correct_fi) 
+
+# SMOOTH compare with simulation (which are is the true states)
+correct_smo = simulate$states == predict_smooth
+smo_acc = sum(correct_smo)/length(correct_smo) 
+
+cat("Viterbi accuracy: ", vit_acc , "\n")
+cat("Filter accuracy: ", fil_acc , "\n")
+cat("Smoothing accuracy: ", smo_acc , "\n")
+```
+
+## Task 5 
+Repeat the previous exercise with different simulated samples. In general, the smoothed distributions should be more accurate than the filtered distributions. Why ? In general, the smoothed distributions should be more accurate than the most probable paths, too. Why ?
+
+```{r}
+#We create new observations
+set.seed(12345)
+new_simulate=simHMM(HMM, 100)
+new_most_probab_path = viterbi(HMM, new_simulate$observation)
+
+alpha = exp(forward(HMM, new_simulate$observation))
+beta = exp(backward(HMM, new_simulate$observation))
+filter = t(apply(alpha, 1, "/", apply(alpha, 2, sum)))
+smooth = t(apply(alpha*beta, 1, "/", apply(alpha*beta, 2, sum)))
+
+predict_filter = apply(X = filter, MARGIN = 2, FUN = which.max)
+predict_smooth = apply(X = smooth, MARGIN = 2, FUN = which.max)
+
+# VITERBI compare with simulation (which are is the true states)
+correct_vit = new_simulate$states == new_most_probab_path
+vit_acc = sum(correct_vit)/length(correct_vit) #61%
+
+# FILTER compare with simulation (which are is the true states)
+correct_fi = new_simulate$states == predict_filter
+fil_acc = sum(correct_fi)/length(correct_fi) #46%
+
+# SMOOTH compare with simulation (which are is the true states)
+correct_smo = new_simulate$states == predict_smooth
+smo_acc = sum(correct_smo)/length(correct_smo) #68%
+
+cat("Viterbi accuracy: ", vit_acc , "\n")
+cat("Filter accuracy: ", fil_acc , "\n")
+cat("Smoothing accuracy: ", smo_acc , "\n")
+
+```
+As we can see, we get the best predictions from smoothing compared to filter, this is due to the access of the total dataset when making predictions 0:T, instead of 0:t like in the filtering algorithm. This creates a better prediction of where the robot might be located, since you have predictions of future states as well. 
+
+Smoothing compared to best probable path is also somewhat better. Both smooting and best probable path has the same data access, but the differences is that the most probable path has an extra condition, that the path must "makes sense", meaning it cannot jump between state 3 to 5, or take a step backwards for example. This makes the next predicted path dependent on the previous predicted state. This gives a dependency between the states. If a prediction of a state is made wrong, this will affect the next prediction. 
+Viterbi gives us a possible true path, but maybe not the moste accurate predicted path. All in all, viterbi gives us at least or less accurate path compared to smoothing. 
+
+## Task 6
+Is it true that the more observations you have, the better you know where the robot is ?
+```{r}
+#install.packages("entropy")
+library(entropy)
+#Entorpy tittar 
+#för en distribution, hur säker är du? Om uniform --> entropy är hög. (dvs har ej koll), ju skarpare pik vid maximum, desto mindre entropy. 
+
+filter_entropy = apply(X = filter, MARGIN = 2, FUN = entropy.empirical) 
+
+plot(x=rep(1:100), y=filter_entropy, xlab = "step", ylab = "Entropy value", type = "o", col="black", main = "Entropy over time")
+
+#Interesting to compare with smooth?
+smooth_entropy = apply(X = smooth, MARGIN = 2, FUN = entropy.empirical) 
+
+#We can see that smooth has in general lower entropy, meaning more we are more sure of the predictions. This is mainly beacuse we have more information. 
+table(filter_entropy > smooth_entropy)
+
+```
+In the beginning we have a higher entropy and are less sure about our prediction (to step4), from there on, we have a pretty stable value over entropy over time, and not an continuous decrease in entopry. This gives us the conclusion that more observation doesn't result in more accurate predictions over time. 
+Sometimes we have an entropy of value 0, which says that we have 100% chance of prediction of a certaint state. This is probably a result from the previous prediction, and the previous sequence of observations and predictions. For example we observe a state 5 (i+2) two steps forward, and the next step we observe 1 (i-2), this must result in a prediction of a curret state 3 if this should be possible.
+
+##Task 7
+Consider any of the samples above of length 100. Compute the probabilities of the hidden states for the time step 101
+```{r}
+#transfromation model 
+#State X,Y,Z now with certain probability - state after those? 
+
+last_state=smooth[,100]
+prob_101 = last_state %*%  HMM$transProbs
+plot(x=rep(1:10), y=prob_101, xlab = "node", ylab = "Probability next state", type = "o", col="blue", main = "Timestep 101")
+
+
+```
+
+Next step is with highest probability state 3, or 2,4,1 or 5 with lower probability. 

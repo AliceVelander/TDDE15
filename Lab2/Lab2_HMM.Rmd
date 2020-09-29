@@ -53,7 +53,6 @@ HMM
 Simulate 100 steps
 
 ```{r}
-set.seed(12345)
 simulate=simHMM(HMM, 100)
 simulate
 ```
@@ -117,7 +116,6 @@ Repeat the previous exercise with different simulated samples. In general, the s
 
 ```{r}
 #We create new observations
-set.seed(12345)
 new_simulate=simHMM(HMM, 100)
 new_most_probab_path = viterbi(HMM, new_simulate$observation)
 
